@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"flag"
@@ -15,9 +17,11 @@ import (
 func main() {
 	var fileName string
 	var regexStr string
+	var port int
 
 	flag.StringVar(&fileName, "file", "", "which file to load data from. If not passed, data is read from stdin")
 	flag.StringVar(&regexStr, "sep", `\s+`, "which regular expression to use as field separator")
+	flag.IntVar(&port, "port", 0, "which port to run the webserver at. If not defined, the port will be defined by the operating system")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -42,16 +46,30 @@ func main() {
 	tree, err := BuildTree(ctx, reader, separator)
 	panicOnErr(err)
 
-	tree.Value = "TOTAL"
+	flameGraph := tree.ToFlameGraph()
+	flameGraph.Name = "TOTAL"
 
-	encodedFlameGraph, err := json.Marshal(tree.ToFlameGraph())
+	jsonEncodedFlameGraph := bytes.Buffer{}
+	jsonEncoder := json.NewEncoder(&jsonEncodedFlameGraph)
+	// jsonEncoder.SetIndent("", "  ")
+	panicOnErr(jsonEncoder.Encode(flameGraph))
+
+	compressedFlameGraph := bytes.Buffer{}
+	compressor := gzip.NewWriter(&compressedFlameGraph)
+	_, err = compressor.Write(jsonEncodedFlameGraph.Bytes())
 	panicOnErr(err)
+	panicOnErr(compressor.Close())
 
-	fetcher := func(ctx context.Context) (json.RawMessage, error) {
-		return encodedFlameGraph, nil
-	}
+	log.Printf("Generated a tree with %d nodes representing a total of %d samples", tree.Size(), tree.Samples)
 
-	server := NewServer(8080, fetcher)
+	server := NewServer(port, compressedFlameGraph.Bytes())
+
+	// allow GC'ing
+	tree = nil
+	flameGraph = nil
+	jsonEncodedFlameGraph = bytes.Buffer{}
+	compressedFlameGraph = bytes.Buffer{}
+
 	if err := server.Run(ctx); err != context.Canceled {
 		panic(err)
 	}

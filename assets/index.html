@@ -1,4 +1,4 @@
-<!-- 
+<!--
 
   Based on https://github.com/spiermar/d3-flame-graph/blob/gh-pages/index.html
 
@@ -14,43 +14,14 @@
     <link rel="stylesheet" href="./bootstrap.min.css">
     <link rel="stylesheet" type="text/css" href="./d3-flamegraph.css">
 
-    <style>
-
-    /* Space out content a bit */
-    body {
-      padding-top: 20px;
-      padding-bottom: 20px;
-    }
-
-    /* Custom page header */
-    .header {
-      padding-bottom: 20px;
-      padding-right: 15px;
-      padding-left: 15px;
-      border-bottom: 1px solid #e5e5e5;
-    }
-
-    /* Make the masthead heading the same height as the navigation */
-    .header h3 {
-      margin-top: 0;
-      margin-bottom: 0;
-      line-height: 40px;
-    }
-
-    /* Customize container */
-    .container {
-      max-width: 990px;
-    }
-    </style>
-
-    <title>d3-flame-graph</title>
+    <title>Flamegrapher</title>
 
   </head>
   <body>
-    <div class="container">
+    <div class="container-fluid">
       <div class="header clearfix">
         <nav>
-          <div class="pull-right">
+          <div class="pull-left">
             <form class="form-inline" id="form">
               <a class="btn" href="javascript: resetZoom();">Reset zoom</a>
               <a class="btn" href="javascript: clear();">Clear</a>
@@ -61,7 +32,6 @@
             </form>
           </div>
         </nav>
-        <h3 class="text-muted">d3-flame-graph</h3>
       </div>
       <div id="chart">
       </div>
@@ -72,7 +42,7 @@
 
     <!-- D3.js -->
     <script src="./d3.v4.min.js" charset="utf-8"></script>
-    
+
     <!-- d3-tip -->
     <script type="text/javascript" src=./d3-tip.min.js></script>
 
@@ -80,29 +50,77 @@
     <script type="text/javascript" src="./d3-flamegraph.min.js"></script>
 
     <script type="text/javascript">
+
+    function recurse(d, callback) {
+      if (d == null) {
+        return
+      }
+      callback(d)
+      recurse(d.parent, callback)
+    }
+
+    function fullName(d) {
+      if (d.parent == null) {
+        return d.data.name;
+      }
+
+      var name = ""
+      recurse(d, function(d){
+        if (d.parent != null) {
+          name = d.data.name + name;
+        }
+      })
+      return name
+    }
+
+    function getRoot(d) {
+      while (d.parent != null) {
+        d = d.parent
+      }
+      return d
+    }
+
+    function tooltip(d) {
+      console.log(d);
+
+      var name = fullName(d);
+      var samples = d.data.value;
+      var percentage = 100;
+      var totalPercentage = 100;
+      if (d.parent != null) {
+        percentage = Math.round(samples / d.parent.data.value * 10000) / 100;
+        totalPercentage = Math.round(samples / getRoot(d).data.value * 10000) / 100;
+      }
+      return "<table class=\"table table-sm\">" +
+        "<tr><td>name</td><td>" + name + "</td></tr>" +
+        "<tr><td>samples</td><td>" + samples + "</td></tr>" +
+        "<tr><td>percentage</td><td>" + percentage + "%</td></tr>" +
+        "<tr><td>total percentage</td><td>" + totalPercentage + "%</td></tr>" +
+        "</table>"
+    }
+
+    // Docs at https://github.com/spiermar/d3-flame-graph
     var flameGraph = d3.flamegraph()
-      .width(960)
+      .width(1600)
       .cellHeight(18)
-      .transitionDuration(750)
+      .transitionDuration(250)
       .minFrameSize(5)
       .transitionEase(d3.easeCubic)
       .sort(true)
       //Example to sort in reverse order
       //.sort(function(a,b){ return d3.descending(a.name, b.name);})
-      .title("")
+      // .title("")
       .onClick(onClick)
       .differential(false)
       .selfValue(false);
 
+    var tip = d3.tip()
+      .direction("s")
+      .offset([8, 0])
+      .attr('class', 'd3-flame-graph-tip')
+      .html(tooltip);
 
-    // Example on how to use custom tooltips using d3-tip.
-    // var tip = d3.tip()
-    //   .direction("s")
-    //   .offset([8, 0])
-    //   .attr('class', 'd3-flame-graph-tip')
-    //   .html(function(d) { return "name: " + d.data.name + ", value: " + d.data.value; });
-
-    // flameGraph.tooltip(tip);
+    flameGraph.tooltip(tip);
 
     var details = document.getElementById("details");
     flameGraph.setDetailsElement(details);

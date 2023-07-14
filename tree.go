@@ -7,6 +7,12 @@ import (
 	"regexp"
 )
 
+type Tree struct {
+	Value    string
+	Samples  int64
+	Children map[string]*Tree
+}
+
 func BuildTree(ctx context.Context, reader io.Reader, separator *regexp.Regexp) (*Tree, error) {
 	bufReader := bufio.NewReader(reader)
 	tree := Tree{}
@@ -19,28 +25,35 @@ func BuildTree(ctx context.Context, reader io.Reader, separator *regexp.Regexp) 
 			return nil, err
 		}
 
-		if line[len(line)-1] == '\n' {
-			line = line[:len(line)-2]
+		if line == "" {
+			continue
 		}
 
-		parts := separator.Split(line, -1)
+		if line[len(line)-1] == '\n' {
+			line = line[:len(line)-1]
+		}
+
+		separatorLocations := separator.FindAllStringSubmatchIndex(line, -1)
+		parts := make([]string, len(separatorLocations)+1)
+		lineIdx := 0
+		for idx, startEnd := range separatorLocations {
+			end := startEnd[1]
+			parts[idx] = line[lineIdx:end]
+			lineIdx = end
+		}
+		parts[len(parts)-1] = line[lineIdx:]
+
 		tree.Add(parts)
 	}
 	return &tree, nil
 }
 
-type Tree struct {
-	Value    string
-	Count    int64
-	Children map[string]*Tree
-}
-
 func (t *Tree) Add(parts []string) {
+	t.Samples++
+
 	if len(parts) == 0 {
 		return
 	}
-
-	t.Count++
 
 	value := parts[0]
 	right := parts[1:]
@@ -56,23 +69,34 @@ func (t *Tree) Add(parts []string) {
 	child.Add(right)
 }
 
+func (t *Tree) Size() int64 {
+	var size int64 = 1
+	for _, child := range t.Children {
+		size += child.Size()
+	}
+	return size
+}
+
 type FlameGraph struct {
 	Name     string        `json:"name"`
 	Value    int64         `json:"value"`
-	Children []*FlameGraph `json:"children"`
+	Children []*FlameGraph `json:"children,omitempty"`
 }
 
 func (t *Tree) ToFlameGraph() *FlameGraph {
-	children := make([]*FlameGraph, len(t.Children))
-	idx := 0
-	for _, child := range t.Children {
-		children[idx] = child.ToFlameGraph()
-		idx++
+	var children []*FlameGraph
+	if len(t.Children) > 0 {
+		children = make([]*FlameGraph, len(t.Children))
+		idx := 0
+		for _, child := range t.Children {
+			children[idx] = child.ToFlameGraph()
+			idx++
+		}
 	}
 
 	return &FlameGraph{
 		Name:     t.Value,
-		Value:    t.Count,
+		Value:    t.Samples,
 		Children: children,
 	}
 }
